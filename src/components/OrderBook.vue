@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import IconArrowDown from "@/assets/icon/IconArrowDown.vue";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
 interface Order {
   price: number;
@@ -284,8 +284,29 @@ function updateOrders(data: WebSocketMessage): void {
     .slice(0, 8);
 }
 
+const updateTitle = () => {
+  if (lastPrice.value) {
+    document.title = `BTCPFC ${
+      priceDirection.value === "up"
+        ? "↑"
+        : priceDirection.value === "down"
+        ? "↓"
+        : ""
+    } ${lastPrice.value} | Order Book`;
+  } else {
+    document.title = "Order Book";
+  }
+};
+
+// Watch for price changes
+watch(lastPrice, () => {
+  updateTitle();
+});
+
+// Initial title update
 onMounted(() => {
   connectWebSocket();
+  updateTitle();
 });
 
 onUnmounted(() => {
