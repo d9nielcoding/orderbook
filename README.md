@@ -1,14 +1,26 @@
-# orderbook
+# Order Book
 
-This template should help get you started developing with Vue 3 in Vite.
+A real-time cryptocurrency order book application that displays live price updates and order tracking for BTC/USD trading pairs.
 
-## Recommended IDE Setup
+## Features
 
-[VSCode](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+- Real-time order book updates via WebSocket
+- Live price tracking with visual indicators
+- Cumulative order size calculations
+- Visual percentage bars for order sizes
+- Dark theme optimized for trading interfaces
+- Responsive design
 
-## Customize configuration
+## Demo
 
-See [Vite Configuration Reference](https://vite.dev/config/).
+Check out the live demo at [https://orderbook-d9niel.vercel.app/](https://orderbook-d9niel.vercel.app/)
+
+## Technologies Used
+
+- Vue 3 with TypeScript
+- WebSocket for real-time data
+- Vite for build tooling
+- BTSE API for market data
 
 ## Project Setup
 
@@ -22,8 +34,14 @@ npm install
 npm run dev
 ```
 
-### Compile and Minify for Production
+### Type-Check, Compile and Minify for Production
 
 ```sh
 npm run build
+```
+
+### Lint with [ESLint](https://eslint.org/)
+
+```sh
+npm run lint
 ```
