@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IconArrowDown from "@/assets/icon/IconArrowDown.vue";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
 interface Order {
@@ -39,7 +40,11 @@ interface WebSocketMessage {
 
 interface TradeMessage {
   price: number;
-  [key: string]: any;
+  side: "BUY" | "SELL";
+  size: number;
+  symbol: string;
+  timestamp: number;
+  tradeId: number;
 }
 
 const sellOrders = ref<Order[]>([]);
@@ -51,20 +56,46 @@ let wsOrderBook: WebSocket | null = null;
 let wsPrice: WebSocket | null = null;
 let lastSeqNum: number | null = null;
 
+const quoteTotalSellSize = computed(() => {
+  return sellOrders.value
+    .filter((order) => order.size > 0)
+    .reduce((acc, order) => acc + Number(order.size), 0);
+});
+
+const quoteTotalBuySize = computed(() => {
+  return buyOrders.value
+    .filter((order) => order.size > 0)
+    .reduce((acc, order) => acc + Number(order.size), 0);
+});
+
 const displayedSellOrders = computed<OrderWithTotal[]>(() => {
-  return sellOrders.value.slice(0, 8).map((order, index, array) => ({
-    ...order,
-    total: calculateSellTotal(index, array),
-    percentage: (calculateSellTotal(index, array) / getTotalSellSize()) * 100,
-  }));
+  return sellOrders.value
+    .filter((order) => order.size > 0)
+    .sort((a, b) => a.price - b.price) // Sort from lowest to highest
+    .slice(0, 8)
+    .map((order, index, array) => {
+      const accumulativeTotal = calculateSellTotal(index, array);
+      return {
+        ...order,
+        total: accumulativeTotal,
+        percentage: (accumulativeTotal / quoteTotalSellSize.value) * 100,
+      };
+    });
 });
 
 const displayedBuyOrders = computed<OrderWithTotal[]>(() => {
-  return buyOrders.value.slice(0, 8).map((order, index, array) => ({
-    ...order,
-    total: calculateBuyTotal(index, array),
-    percentage: (calculateBuyTotal(index, array) / getTotalBuySize()) * 100,
-  }));
+  return buyOrders.value
+    .filter((order) => order.size > 0)
+    .sort((a, b) => b.price - a.price) // Sort from highest to lowest
+    .slice(0, 8)
+    .map((order, index, array) => {
+      const accumulativeTotal = calculateBuyTotal(index, array);
+      return {
+        ...order,
+        total: accumulativeTotal,
+        percentage: (accumulativeTotal / quoteTotalBuySize.value) * 100,
+      };
+    });
 });
 
 const priceDirection = computed<"up" | "down" | "same">(() => {
@@ -73,30 +104,18 @@ const priceDirection = computed<"up" | "down" | "same">(() => {
   return "same";
 });
 
-const priceChangeClass = computed(() => ({
-  "price-up": priceDirection.value === "up",
-  "price-down": priceDirection.value === "down",
-  "price-same": priceDirection.value === "same",
-}));
-
 function formatNumber(num: number): string {
   return num.toLocaleString("en-US", { maximumFractionDigits: 1 });
 }
 
 function calculateSellTotal(index: number, array: Order[]): number {
-  return array.slice(0, index + 1).reduce((acc, order) => acc + order.size, 0);
+  return array.slice(index).reduce((acc, order) => acc + Number(order.size), 0);
 }
 
 function calculateBuyTotal(index: number, array: Order[]): number {
-  return array.slice(0, index + 1).reduce((acc, order) => acc + order.size, 0);
-}
-
-function getTotalSellSize(): number {
-  return sellOrders.value.reduce((acc, order) => acc + order.size, 0);
-}
-
-function getTotalBuySize(): number {
-  return buyOrders.value.reduce((acc, order) => acc + order.size, 0);
+  return array
+    .slice(0, index + 1)
+    .reduce((acc, order) => acc + Number(order.size), 0);
 }
 
 function connectWebSocket(): void {
@@ -130,18 +149,18 @@ function connectWebSocket(): void {
 }
 
 function handleOrderBookMessage(event: MessageEvent): void {
-  const data = JSON.parse(event.data).data as WebSocketMessage;
-  console.log("[OrderBook] handleOrderBookMessage", data);
+  const rawMessage = JSON.parse(event.data);
+  if (rawMessage.data === undefined) {
+    return;
+  }
+  const data = rawMessage.data as WebSocketMessage;
 
   if (data.type === "snapshot") {
-    // Handle initial snapshot
     lastSeqNum = data.seqNum;
     sellOrders.value = data.asks.map(convertRawOrder);
     buyOrders.value = data.bids.map(convertRawOrder);
   } else if (data.type === "delta") {
-    // Handle incremental updates
     if (data.prevSeqNum !== lastSeqNum) {
-      // Sequence mismatch, resubscribe
       if (wsOrderBook) {
         wsOrderBook.send(
           JSON.stringify({
@@ -165,7 +184,12 @@ function handleOrderBookMessage(event: MessageEvent): void {
 }
 
 function handlePriceMessage(event: MessageEvent): void {
-  const data = JSON.parse(event.data) as TradeMessage[];
+  const rawMessage = JSON.parse(event.data);
+  if (rawMessage.data === undefined) {
+    return;
+  }
+  const data = rawMessage.data as TradeMessage[];
+
   if (Array.isArray(data) && data.length > 0) {
     previousPrice.value = lastPrice.value;
     lastPrice.value = data[0].price;
@@ -176,6 +200,16 @@ function updateOrders(data: WebSocketMessage): void {
   // Update asks
   data.asks.forEach((rawAsk) => {
     const newAsk = convertRawOrder(rawAsk);
+    if (newAsk.size === 0) {
+      // Remove order if size is 0
+      const index = sellOrders.value.findIndex(
+        (ask) => ask.price === newAsk.price
+      );
+      if (index !== -1) {
+        sellOrders.value.splice(index, 1);
+      }
+      return;
+    }
     const index = sellOrders.value.findIndex(
       (ask) => ask.price === newAsk.price
     );
@@ -204,6 +238,16 @@ function updateOrders(data: WebSocketMessage): void {
   // Update bids
   data.bids.forEach((rawBid) => {
     const newBid = convertRawOrder(rawBid);
+    if (newBid.size === 0) {
+      // Remove order if size is 0
+      const index = buyOrders.value.findIndex(
+        (bid) => bid.price === newBid.price
+      );
+      if (index !== -1) {
+        buyOrders.value.splice(index, 1);
+      }
+      return;
+    }
     const index = buyOrders.value.findIndex(
       (bid) => bid.price === newBid.price
     );
@@ -231,9 +275,11 @@ function updateOrders(data: WebSocketMessage): void {
 
   // Sort and trim orders
   sellOrders.value = sellOrders.value
+    .filter((order) => order.size > 0)
     .sort((a, b) => b.price - a.price)
     .slice(0, 8);
   buyOrders.value = buyOrders.value
+    .filter((order) => order.size > 0)
     .sort((a, b) => b.price - a.price)
     .slice(0, 8);
 }
@@ -258,11 +304,11 @@ onUnmounted(() => {
     <!-- Sell Orders -->
     <div class="order-table">
       <div class="table-header" :style="{ color: '#8698aa' }">
-        <div>Price (USD)</div>
-        <div>Size</div>
-        <div>Total</div>
+        <div>Price (USDT)</div>
+        <div>Size (BTC)</div>
+        <div>Total (BTC)</div>
       </div>
-      <div class="sell-orders">
+      <div class="order-row-wrapper">
         <div
           v-for="order in displayedSellOrders"
           :key="order.price"
@@ -279,7 +325,10 @@ onUnmounted(() => {
               hoveredRow === order.price ? '#1E3059' : 'transparent',
           }"
         >
-          <div class="price" :style="{ color: '#FF5B5A' }">
+          <div
+            class="price"
+            :style="{ color: '#FF5B5A', paddingRight: '10px' }"
+          >
             {{ formatNumber(order.price) }}
           </div>
           <div class="size">{{ formatNumber(order.size) }}</div>
@@ -289,6 +338,7 @@ onUnmounted(() => {
             :style="{
               width: order.percentage + '%',
               backgroundColor: 'rgba(255, 90, 90, 0.12)',
+              opacity: 0.5,
             }"
           ></div>
         </div>
@@ -296,12 +346,12 @@ onUnmounted(() => {
     </div>
 
     <!-- Last Price -->
-    <div class="last-price" :class="priceChangeClass">
+    <div class="last-price" :class="priceDirection">
       {{ formatNumber(lastPrice) }}
-      <img
-        src="../assets/IconArrowDown.svg"
-        alt="arrow"
-        :class="{ up: priceDirection === 'up' }"
+      <IconArrowDown
+        v-show="priceDirection !== 'same'"
+        :class="priceDirection"
+        :size="15"
       />
     </div>
 
@@ -324,7 +374,10 @@ onUnmounted(() => {
               hoveredRow === order.price ? '#1E3059' : 'transparent',
           }"
         >
-          <div class="price" :style="{ color: '#00b15d' }">
+          <div
+            class="price"
+            :style="{ color: '#00b15d', paddingRight: '10px' }"
+          >
             {{ formatNumber(order.price) }}
           </div>
           <div class="size">{{ formatNumber(order.size) }}</div>
@@ -342,14 +395,24 @@ onUnmounted(() => {
   </div>
 </template>
 
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap");
+</style>
+
 <style scoped>
+h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  margin-left: 10px;
+}
+
 .order-book {
-  width: 100%;
-  max-width: 600px;
+  width: 300px;
   margin: 0 auto;
   padding: 20px;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
-    Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  font-family: "Lato", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
 }
 
 .order-table {
@@ -360,7 +423,7 @@ onUnmounted(() => {
 .table-header {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  padding: 10px;
+  padding: 5px 10px;
   font-size: 14px;
   text-align: right;
 }
@@ -368,23 +431,30 @@ onUnmounted(() => {
 .order-row {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  padding: 10px;
-  position: relative;
+  /* padding: 1px 0 2px 10px; */
+  margin: 1px 0 2px 10px;
   text-align: right;
   cursor: pointer;
+  position: relative;
 }
 
-.total-bar {
+.order-row .total-bar {
   position: absolute;
   top: 0;
   right: 0;
   height: 100%;
-  z-index: 1;
+  z-index: 0;
+  transition: width 0.3s ease-out;
+  pointer-events: none;
 }
 
 .order-row > div {
   position: relative;
-  z-index: 2;
+  z-index: 1;
+}
+
+.order-row-wrapper {
+  position: relative;
 }
 
 .last-price {
@@ -397,6 +467,15 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  transition: color 0.2s;
+}
+
+.last-price.up {
+  color: #00b15d;
+}
+
+.last-price.down {
+  color: #ff5b5a;
 }
 
 .last-price img {
@@ -405,7 +484,7 @@ onUnmounted(() => {
   transition: transform 0.2s;
 }
 
-.last-price img.up {
+.last-price svg.up {
   transform: rotate(180deg);
 }
 
@@ -428,18 +507,18 @@ onUnmounted(() => {
 }
 
 .flash-green {
-  animation: flash-green 1s ease-out;
+  animation: flash-green 0.5s ease-out;
 }
 
 .flash-red {
-  animation: flash-red 1s ease-out;
+  animation: flash-red 0.5s ease-out;
 }
 
-.size-increase {
-  animation: flash-green 1s ease-out;
+.size-increase .size {
+  animation: flash-green 0.5s ease-out;
 }
 
-.size-decrease {
-  animation: flash-red 1s ease-out;
+.size-decrease .size {
+  animation: flash-red 0.5s ease-out;
 }
 </style>
