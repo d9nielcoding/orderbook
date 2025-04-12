@@ -295,10 +295,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div
-    class="order-book"
-    :style="{ backgroundColor: '#131B29', color: '#F0F4F8' }"
-  >
+  <div class="order-book">
     <h2>Order Book</h2>
 
     <!-- Sell Orders -->
@@ -395,24 +392,20 @@ onUnmounted(() => {
   </div>
 </template>
 
-<style>
-@import url("https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap");
-</style>
-
 <style scoped>
+.order-book {
+  background-color: #131b29;
+  color: #f0f4f8;
+  padding: 20px;
+  border-radius: 8px;
+  font-family: "Lato", sans-serif;
+}
+
 h2 {
   font-size: 18px;
   font-weight: 700;
   color: #fff;
   margin-left: 10px;
-}
-
-.order-book {
-  width: 300px;
-  margin: 0 auto;
-  padding: 20px;
-  font-family: "Lato", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
 }
 
 .order-table {
